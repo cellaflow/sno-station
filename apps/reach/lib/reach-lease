@@ -1,0 +1,39 @@
+#!/usr/bin/env node
+// Takes a card with a Cellaflow lease. Exit 0 won it, 3 someone else holds it,
+// 69 no engine answered.
+//
+// A taker file is written once and never removed, so a card whose agent has
+// gone belongs to it for the life of the mailbox. A lease is held only while
+// its holder renews it, so the same card comes back by itself.
+//
+//   reach-lease <key> <candidate>                    take the card
+//   reach-lease --renew <key> <candidate> <token>    extend while still working
+const [, , ...argv] = process.argv;
+const renew = argv[0] === "--renew";
+const [key, candidate, token] = renew ? argv.slice(1) : argv;
+const target = process.env.CELLAFLOW_TARGET ?? "localhost:50051";
+const ttlMs = Number(process.env.REACH_LEASE_TTL_MS ?? 900_000);
+
+let CellaflowClient, CacheStatus;
+try {
+  ({ CellaflowClient, CacheStatus } = await import("@cellaflow/sdk"));
+} catch {
+  process.exit(69);
+}
+
+try {
+  const client = new CellaflowClient({ target });
+  if (renew) {
+    await client.renewLease(candidate, key, Number(token), ttlMs);
+    process.exit(0);
+  }
+  // Acquisition and the fencing token are one atomic step in the engine, which
+  // is what makes this safe to race. Nothing releases on exit: the hold
+  // outlives this process and lapses only if nobody renews it.
+  const resp = await client.checkIdempotencyCache(candidate, key, 0, ttlMs);
+  if (resp.status !== CacheStatus.ACQUIRED) process.exit(3);
+  process.stdout.write(`${resp.fencingToken ?? 0}\n`);
+  process.exit(0);
+} catch {
+  process.exit(69);
+}

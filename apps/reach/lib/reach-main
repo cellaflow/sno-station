@@ -2973,6 +2973,33 @@ since_mark() (
 take_winner() (
     hash=$(printf '%s' "$2" | sha256sum) || exit 74
     mkdir -p -- "$1/takers" || exit 74
+    # A lease decides it when an engine is reachable. The taker file is still
+    # written, so read_taker and agent-state are untouched, but it is no longer
+    # the thing that decides: a holder that stops renewing loses the card, and
+    # the next agent to ask gets it. Without an engine this falls through to
+    # the original path below and behaves exactly as it did before.
+    # Scoped to this mailbox and this message, exactly like the taker file it
+    # decides. Keying on the message alone outlives the mailbox, and a rebuilt
+    # mailbox would then find a hold with no taker file beside it.
+    # This body is also shipped to the fixed POSIX receiver, which has no repo
+    # around it, so the lease is attempted only where it can be found.
+    if [ -n "${REPO_ROOT:-}" ] && [ -x "$REPO_ROOT/lib/reach-lease" ]; then
+    lease_key=$(printf '%s\n%s\n' "$1" "$2" | sha256sum) || exit 74
+    "$REPO_ROOT/lib/reach-lease" "${lease_key%% *}" "$3" >/dev/null 2>&1
+    case $? in
+        0)  printf '%s\n' "$3" >"$1/takers/${hash%% *}" || exit 74
+            printf '%s\n' "$3"; exit 0 ;;
+        3)  # The winner may still be between its grant and its write, so wait
+            # for the name the way the exclusive-create path below does.
+            # Never answer with our own: that would make both callers winners.
+            for _ in $(seq 1 100); do
+                winner=$(cat -- "$1/takers/${hash%% *}" 2>/dev/null) || winner=
+                if [ -n "$winner" ]; then printf '%s\n' "$winner"; exit 0; fi
+                sleep 0.001
+            done
+            exit 74 ;;
+    esac
+    fi
     perl -MFcntl=O_WRONLY,O_CREAT,O_EXCL -MTime::HiRes=usleep -e '
         my ($file, $candidate) = @ARGV;
         if (sysopen(my $out, $file, O_WRONLY|O_CREAT|O_EXCL, 0600)) {
