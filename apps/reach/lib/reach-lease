@@ -6,6 +6,11 @@
 // gone belongs to it for the life of the mailbox. A lease is held only while
 // its holder renews it, so the same card comes back by itself.
 //
+// Taking prints the fencing token. Being refused prints who holds the card,
+// which the engine reports from 0.5 on, so the caller that lost does not have
+// to wait for the winner to write its name down. An older engine names nobody
+// and prints an empty line.
+//
 //   reach-lease <key> <candidate>                    take the card
 //   reach-lease --renew <key> <candidate> <token>    extend while still working
 const [, , ...argv] = process.argv;
@@ -31,7 +36,12 @@ try {
   // is what makes this safe to race. Nothing releases on exit: the hold
   // outlives this process and lapses only if nobody renews it.
   const resp = await client.checkIdempotencyCache(candidate, key, 0, ttlMs);
-  if (resp.status !== CacheStatus.ACQUIRED) process.exit(3);
+  if (resp.status !== CacheStatus.ACQUIRED) {
+    // The holder named itself in the acquire that won, so this is the same
+    // string the winner wrote into the taker file.
+    process.stdout.write(`${resp.currentHolder?.agentId ?? ""}\n`);
+    process.exit(3);
+  }
   process.stdout.write(`${resp.fencingToken ?? 0}\n`);
   process.exit(0);
 } catch {

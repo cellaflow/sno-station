@@ -2985,19 +2985,18 @@ take_winner() (
     # around it, so the lease is attempted only where it can be found.
     if [ -n "${REPO_ROOT:-}" ] && [ -x "$REPO_ROOT/lib/reach-lease" ]; then
     lease_key=$(printf '%s\n%s\n' "$1" "$2" | sha256sum) || exit 74
-    "$REPO_ROOT/lib/reach-lease" "${lease_key%% *}" "$3" >/dev/null 2>&1
-    case $? in
+    lease_said=$("$REPO_ROOT/lib/reach-lease" "${lease_key%% *}" "$3" 2>/dev/null) &&
+        lease_rc=0 || lease_rc=$?
+    case $lease_rc in
         0)  printf '%s\n' "$3" >"$1/takers/${hash%% *}" || exit 74
             printf '%s\n' "$3"; exit 0 ;;
-        3)  # The winner may still be between its grant and its write, so wait
-            # for the name the way the exclusive-create path below does.
-            # Never answer with our own: that would make both callers winners.
-            for _ in $(seq 1 100); do
-                winner=$(cat -- "$1/takers/${hash%% *}" 2>/dev/null) || winner=
-                if [ -n "$winner" ]; then printf '%s\n' "$winner"; exit 0; fi
-                sleep 0.001
-            done
-            exit 74 ;;
+        3)  # A refusal names the holder, so the caller that lost answers from
+            # the engine rather than waiting for the winner to write its name
+            # down. It never answers with its own: that would make both callers
+            # winners. An engine older than 0.5 names nobody, and the
+            # exclusive-create path below still reads the winner out of the
+            # taker file.
+            if [ -n "$lease_said" ]; then printf '%s\n' "$lease_said"; exit 0; fi ;;
     esac
     fi
     perl -MFcntl=O_WRONLY,O_CREAT,O_EXCL -MTime::HiRes=usleep -e '
