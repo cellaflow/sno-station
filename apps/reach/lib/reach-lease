@@ -18,9 +18,10 @@ const renew = argv[0] === "--renew";
 const [key, candidate, token] = renew ? argv.slice(1) : argv;
 const target = process.env.CELLAFLOW_TARGET ?? "localhost:50051";
 // How long a card stays held with nobody renewing. Nothing renews one yet, so
-// this has to cover a card being worked rather than a quiet interval: 5400s is
-// what reach already allows a wake attempt to take (bound_seconds). Renewing
-// from something that knows the agent is alive is what lets it come down.
+// this has to cover a card being worked rather than a quiet interval, and it
+// sits well above the 900s that agent-state.ts:651 already treats as too long
+// to be silent. Renewing from something that knows the agent is alive is what
+// lets it come down.
 const ttlMs = Number(process.env.REACH_LEASE_TTL_MS ?? 5_400_000);
 
 let CellaflowClient, CacheStatus;
