@@ -53,5 +53,8 @@
     "@mariozechner/pi-ai": {
       "@anthropic-ai/sdk": "^0.92.0"
     }
+  },
+  "optionalDependencies": {
+    "@cellaflow/sdk": "^0.13.0"
   }
 }
